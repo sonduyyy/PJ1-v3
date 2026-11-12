@@ -197,8 +197,10 @@ window.FeedEngine = {
     // 1. Media Section
     let mediaHtml = '';
     if (isVideo) {
+      const bgImg = item.poster || item.sampleUrl || '';
+      const bgStyle = bgImg ? `style="--bg-url: url('${bgImg}')"` : '';
       mediaHtml = `
-        <div class="media-wrapper video-mode">
+        <div class="media-wrapper video-mode" ${bgStyle}>
           <video class="slide-video" playsinline webkit-playsinline loop preload="none" referrerpolicy="no-referrer"></video>
           <img class="slide-poster" src="${item.poster || ''}" referrerpolicy="no-referrer" alt="poster" onerror="this.style.opacity='0'">
           <div class="slide-spinner"></div>
@@ -209,7 +211,7 @@ window.FeedEngine = {
     } else {
       if (isAlbum) {
         const slidesHtml = item.albumImages.map((u, idx) => `
-          <div class="album-slide" data-idx="${idx}">
+          <div class="album-slide" data-idx="${idx}" style="--bg-url: url('${u}')">
             <img src="${u}" loading="lazy" referrerpolicy="no-referrer" alt="slide ${idx + 1}">
           </div>
         `).join('');
@@ -223,9 +225,11 @@ window.FeedEngine = {
           </div>
         `;
       } else {
+        const photoUrl = item.sampleUrl || item.currentUrl || '';
+        const bgStyle = photoUrl ? `style="--bg-url: url('${photoUrl}')"` : '';
         mediaHtml = `
-          <div class="media-wrapper photo-mode single-photo-wrapper">
-            <img class="slide-single-photo" src="${item.sampleUrl || item.currentUrl}" referrerpolicy="no-referrer" alt="${item.title || 'photo'}">
+          <div class="media-wrapper photo-mode single-photo-wrapper" ${bgStyle}>
+            <img class="slide-single-photo" src="${photoUrl}" referrerpolicy="no-referrer" alt="${item.title || 'photo'}">
           </div>
         `;
       }
@@ -237,7 +241,7 @@ window.FeedEngine = {
     const providerObj = window.PROVIDERS[item.sourceKey] || {};
 
     const actionRailHtml = `
-      <div class="right-action-bar action-rail">
+      <div class="slide-right-actions right-action-bar action-rail">
         <!-- 1. Source Avatar with small plus badge -->
         <div class="action-avatar" title="Nguồn: ${providerObj.name || item.sourceKey}">
           <div class="avatar-circle">

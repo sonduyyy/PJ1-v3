@@ -301,7 +301,7 @@ html, body {
   background: #000000;
 }
 
-/* Media Layering */
+/* Media Layering & TikTok Ambient Blur */
 .media-wrapper {
   position: absolute;
   inset: 0;
@@ -312,6 +312,43 @@ html, body {
   justify-content: center;
   background: #000000;
   overflow: hidden;
+}
+
+.album-slide {
+  position: relative !important;
+  overflow: hidden !important;
+  background: #000000;
+  flex: 0 0 100% !important;
+  min-width: 100% !important;
+  width: 100% !important;
+  height: 100% !important;
+  scroll-snap-align: start !important;
+  scroll-snap-stop: always !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.album-slide::before,
+.media-wrapper::before {
+  content: "";
+  position: absolute;
+  inset: -20px;
+  background-image: var(--bg-url);
+  background-size: cover;
+  background-position: center;
+  filter: blur(26px) brightness(0.38);
+  transform: scale(1.15);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.album-slide img,
+.media-wrapper video,
+.media-wrapper .slide-poster,
+.media-wrapper .slide-single-photo {
+  position: relative;
+  z-index: 1;
 }
 
 .slide-video {
@@ -440,6 +477,8 @@ html, body {
   align-items: center !important;
   justify-content: center !important;
   position: relative !important;
+  overflow: hidden !important;
+  background: #000000;
 }
 
 .album-slide img {
@@ -447,6 +486,8 @@ html, body {
   height: 100% !important;
   object-fit: contain !important;
   pointer-events: auto !important;
+  position: relative !important;
+  z-index: 1 !important;
 }
 
 /* Top-Right Album Counter Badge */
@@ -470,11 +511,12 @@ html, body {
 /* ==============================================================================
    5. RIGHT ACTION BAR (TIKTOK STANDARD CRISP WHITE SVGS)
    ============================================================================== */
+.slide-right-actions,
 .right-action-bar,
 .action-rail {
   position: absolute;
-  right: 10px;
-  bottom: 75px;
+  right: 8px;
+  bottom: 16px !important;
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -571,7 +613,9 @@ html, body {
   position: absolute;
   left: 12px;
   right: 76px;
-  bottom: 68px;
+  bottom: 14px !important;
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -676,6 +720,13 @@ html, body {
   width: 0%;
   height: 100%;
   background: var(--primary);
+}
+
+/* Ẩn vạch đỏ tiến trình khi ở chế độ Ảnh */
+body[data-mode="photo"] #seekbar-container,
+body[data-mode="photo"] .seekbar-wrapper,
+#view-feed.photo-mode #seekbar-container {
+  display: none !important;
 }
 
 /* Floating Heart Animation */

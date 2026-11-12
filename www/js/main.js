@@ -150,6 +150,21 @@ function updateTopBarUI() {
   const currentSource = window.APP_STATE.currentSource;
   const sortMode = window.APP_STATE.sortMode;
 
+  if (document.body) {
+    if (document.body.dataset) {
+      document.body.dataset.mode = currentMode;
+    }
+    if (typeof document.body.setAttribute === 'function') {
+      document.body.setAttribute('data-mode', currentMode);
+    }
+  }
+
+  const viewFeed = document.getElementById('view-feed');
+  if (viewFeed) {
+    viewFeed.classList.toggle('photo-mode', currentMode === 'photo');
+    viewFeed.classList.toggle('video-mode', currentMode === 'video');
+  }
+
   const btnVideo = document.getElementById('mode-btn-video');
   const btnPhoto = document.getElementById('mode-btn-photo');
   if (btnVideo) btnVideo.classList.toggle('active', currentMode === 'video');
