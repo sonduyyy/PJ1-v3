@@ -1,0 +1,14 @@
+{
+  "name": "shorts-v2",
+  "version": "4.0.0",
+  "description": "Shorts v4 Clean - TikTok Multi-Web Mobile App",
+  "main": "www/index.html",
+  "scripts": {
+    "build": "echo Web assets are in www/"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
+  }
+}

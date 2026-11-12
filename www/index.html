@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="dark">
+  <title>Shorts</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- ====================================================================
+         1. PASSCODE LOCK OVERLAY (IPHONE STYLE)
+         ==================================================================== -->
+    <div id="passcode-overlay" class="hidden">
+      <div class="passcode-content">
+        <div class="passcode-lock-icon">🔒</div>
+        <h2 class="passcode-title">Nhập mật mã</h2>
+        <div class="passcode-dots" id="passcode-dots">
+          <span class="passcode-dot"></span>
+          <span class="passcode-dot"></span>
+          <span class="passcode-dot"></span>
+          <span class="passcode-dot"></span>
+          <span class="passcode-dot"></span>
+          <span class="passcode-dot"></span>
+        </div>
+        <div class="passcode-keypad">
+          <button class="keypad-btn" data-key="1">1</button>
+          <button class="keypad-btn" data-key="2">2</button>
+          <button class="keypad-btn" data-key="3">3</button>
+          <button class="keypad-btn" data-key="4">4</button>
+          <button class="keypad-btn" data-key="5">5</button>
+          <button class="keypad-btn" data-key="6">6</button>
+          <button class="keypad-btn" data-key="7">7</button>
+          <button class="keypad-btn" data-key="8">8</button>
+          <button class="keypad-btn" data-key="9">9</button>
+          <button class="keypad-btn func-key" data-key="cancel">Hủy</button>
+          <button class="keypad-btn" data-key="0">0</button>
+          <button class="keypad-btn func-key" data-key="del">⌫</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         2. TOP FLOATING APP BAR
+         ==================================================================== -->
+    <header id="top-bar">
+      <!-- Left: Active Source Badge -->
+      <button id="btn-open-source" class="top-bar-btn source-pill" title="Chọn nguồn web">
+        <span id="source-badge-icon">✨</span>
+        <span id="source-badge-name">Idol Video</span>
+        <span class="source-pill-arrow">▾</span>
+      </button>
+
+      <!-- Center: 2 Big Mode Toggles (🎬 Video & 📸 Ảnh) -->
+      <div class="mode-toggles-wrap">
+        <button id="mode-btn-video" class="mode-toggle-btn active" data-mode="video">
+          <span>🎬 Video</span>
+        </button>
+        <button id="mode-btn-photo" class="mode-toggle-btn" data-mode="photo">
+          <span>📸 Ảnh</span>
+        </button>
+      </div>
+
+      <!-- Right: Cycle Sort & Search -->
+      <div class="top-bar-right">
+        <button id="btn-cycle-sort" class="top-bar-btn sort-pill" title="Đổi kiểu sắp xếp">
+          <span id="label-sort-mode">🕒 Mới</span>
+        </button>
+        <button id="btn-open-search" class="top-bar-btn icon-btn" title="Tìm kiếm tag">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="search-svg">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Global Spinner -->
+    <div id="global-loading-spinner" class="global-spinner">
+      <div class="spinner-ring"></div>
+    </div>
+
+    <!-- App Toast -->
+    <div id="app-toast"></div>
+
+    <!-- ====================================================================
+         3. VIEW 1: FEED (TIKTOK FULLSCREEN FEED)
+         ==================================================================== -->
+    <main class="view-screen active" id="view-feed">
+      <div id="feed-container"></div>
+      <div id="seekbar-container">
+        <div id="seekbar-fill"></div>
+      </div>
+    </main>
+
+    <!-- ====================================================================
+         4. VIEW 2: FAVORITES (SAVED ITEMS)
+         ==================================================================== -->
+    <section class="view-screen" id="view-favorites">
+      <header class="sub-header">
+        <div class="sub-header-title-row">
+          <h1 class="sub-title">Đã thích</h1>
+          <span id="fav-count-label" class="sub-count-badge">0 mục</span>
+        </div>
+        <div class="fav-filter-tabs">
+          <button class="fav-filter-btn active" id="fav-filter-all">Tất cả</button>
+          <button class="fav-filter-btn" id="fav-filter-video">🎬 Video</button>
+          <button class="fav-filter-btn" id="fav-filter-photo">📸 Ảnh</button>
+        </div>
+      </header>
+      <div id="favorites-grid" class="favorites-grid"></div>
+    </section>
+
+    <!-- ====================================================================
+         5. VIEW 3: PROFILE / SETTINGS
+         ==================================================================== -->
+    <section class="view-screen" id="view-profile">
+      <header class="sub-header">
+        <h1 class="sub-title">Cài đặt & Hồ sơ</h1>
+      </header>
+      <div class="profile-scroll">
+        <!-- Security Card -->
+        <div class="settings-card">
+          <div class="card-header">
+            <span class="card-icon">🔒</span>
+            <div class="card-title-col">
+              <div class="card-title">Bảo mật Khóa iPhone</div>
+              <div class="card-subtitle">Mật mã 6 số bảo vệ khi vừa mở ứng dụng</div>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label-col">
+              <span class="setting-name">Bật khóa bảo mật</span>
+              <span class="setting-desc">Yêu cầu nhập mật mã khi mở app</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggle-passcode">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="input-group">
+            <label for="input-new-passcode">Mật mã mới (6 số):</label>
+            <input type="password" id="input-new-passcode" maxlength="6" inputmode="numeric" placeholder="vd: 777777">
+          </div>
+          <button class="action-btn-sm" id="btn-save-passcode">Lưu mật mã mới</button>
+        </div>
+
+        <!-- Blacklist Card -->
+        <div class="settings-card">
+          <div class="card-header">
+            <span class="card-icon">🚫</span>
+            <div class="card-title-col">
+              <div class="card-title">Bộ lọc chặn Tag (Blacklist)</div>
+              <div class="card-subtitle">Áp dụng cho tất cả 11 nguồn web</div>
+            </div>
+          </div>
+          <div class="input-group">
+            <label for="input-blacklist">Danh sách tag chặn (ngăn cách bởi dấu phẩy):</label>
+            <textarea id="input-blacklist" rows="2" placeholder="vd: gore, guro, loli, furry, scat..."></textarea>
+          </div>
+          <button class="action-btn-sm" id="btn-save-blacklist">Lưu danh sách chặn</button>
+        </div>
+
+        <!-- Preferences Card -->
+        <div class="settings-card">
+          <div class="card-header">
+            <span class="card-icon">⚙️</span>
+            <div class="card-title-col">
+              <div class="card-title">Tùy chọn hiển thị & Tải</div>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label-col">
+              <span class="setting-name">Chất lượng ảnh/video mặc định</span>
+              <span class="setting-desc">Sample lướt nhanh hơn, Original siêu nét</span>
+            </div>
+            <select id="select-quality" class="setting-select">
+              <option value="sample">Sample (Nhanh & mượt)</option>
+              <option value="original">Original (Gốc siêu nét)</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label-col">
+              <span class="setting-name">Bộ lọc kiểm duyệt (Rating)</span>
+              <span class="setting-desc">Giới hạn nội dung an toàn hoặc 18+</span>
+            </div>
+            <select id="select-rating" class="setting-select">
+              <option value="all">Tất cả (Mọi nội dung)</option>
+              <option value="safe">Chỉ an toàn (Safe)</option>
+              <option value="explicit">Chỉ 18+ (Explicit)</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label-col">
+              <span class="setting-name">Cân bằng âm thanh (Stable Audio EQ)</span>
+              <span class="setting-desc">Tự động cân bằng độ lớn giữa các clip</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggle-stable-audio" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label-col">
+              <span class="setting-name">Tự động phát có tiếng</span>
+              <span class="setting-desc">Bật tiếng ngay khi vừa mở video</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggle-auto-unmute" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Backup & Clear Cache -->
+        <div class="settings-card">
+          <div class="card-header">
+            <span class="card-icon">💾</span>
+            <div class="card-title-col">
+              <div class="card-title">Sao lưu & Khôi phục dữ liệu</div>
+            </div>
+          </div>
+          <div class="backup-btn-row">
+            <button class="action-btn-sm" id="btn-export-backup">📋 Xuất dữ liệu (Copy JSON)</button>
+            <button class="action-btn-sm secondary" id="btn-import-backup">📥 Nhập dữ liệu (Paste JSON)</button>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="card-header">
+            <span class="card-icon">📱</span>
+            <div class="card-title-col">
+              <div class="card-title">Ứng dụng Shorts v4 Clean</div>
+              <div class="card-subtitle">Hệ thống 11 nguồn: 7 Video + 4 Ảnh độc lập</div>
+            </div>
+          </div>
+          <div class="setting-actions">
+            <button class="action-btn-danger" id="btn-clear-cache">Xóa bộ nhớ đệm & Lịch sử</button>
+          </div>
+        </div>
+
+        <!-- Diagnostic Debug Box -->
+        <div class="settings-card">
+          <div class="card-header">
+            <span class="card-icon">🛠️</span>
+            <div class="card-title-col">
+              <div class="card-title">Nhật ký chẩn đoán (Debug Logs)</div>
+            </div>
+          </div>
+          <pre id="debug-log-box" class="debug-log-pre">Chưa có lỗi nào được ghi nhận.</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         6. BOTTOM NAVIGATION BAR
+         ==================================================================== -->
+    <nav id="bottom-nav">
+      <button class="nav-item active" id="nav-btn-feed">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+        </svg>
+        <span class="nav-label">Trang chủ</span>
+      </button>
+
+      <button class="nav-item" id="nav-btn-fav">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+        </svg>
+        <span class="nav-label">Đã thích</span>
+      </button>
+
+      <button class="nav-item" id="nav-btn-profile">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+        </svg>
+        <span class="nav-label">Hồ sơ</span>
+      </button>
+    </nav>
+
+    <!-- ====================================================================
+         7. MODAL: SOURCE SELECTOR
+         ==================================================================== -->
+    <div id="source-modal" class="modal-wrap">
+      <div id="source-modal-backdrop" class="modal-backdrop"></div>
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <h2 id="source-modal-title" class="modal-title">Chọn nguồn</h2>
+          <button id="btn-close-source" class="modal-close-btn">✕</button>
+        </div>
+        <div id="source-options-list" class="source-options-list"></div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         8. MODAL: SEARCH TAGS
+         ==================================================================== -->
+    <div id="search-modal" class="modal-wrap">
+      <div id="search-modal-backdrop" class="modal-backdrop"></div>
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <h2 class="modal-title">Tìm kiếm Tag</h2>
+          <button id="btn-close-search" class="modal-close-btn">✕</button>
+        </div>
+        <div class="search-input-row">
+          <input type="text" id="search-input" placeholder="Nhập tag cần tìm (vd: video, cosplay...)">
+          <button id="btn-submit-search" class="search-action-btn">Tìm</button>
+          <button id="btn-clear-tag" class="search-action-btn secondary">Xóa lọc</button>
+        </div>
+        <div class="hot-tags-section">
+          <div class="section-title">Tag thịnh hành:</div>
+          <div id="hot-tags-list" class="hot-tags-chips"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         9. MODAL: TAGS & INFO
+         ==================================================================== -->
+    <div id="tags-modal" class="modal-wrap">
+      <div id="tags-backdrop" class="modal-backdrop"></div>
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <h2 id="tags-modal-title" class="modal-title">Danh sách Tags</h2>
+          <button id="btn-close-tags" class="modal-close-btn">✕</button>
+        </div>
+        <div id="tags-container" class="tags-chips-container"></div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         10. MODAL: ALBUM GRID (3 COLUMNS)
+         ==================================================================== -->
+    <div id="album-grid-modal" class="modal-wrap">
+      <div id="album-grid-backdrop" class="modal-backdrop"></div>
+      <div class="modal-sheet modal-fullscreen-sheet">
+        <div class="modal-header">
+          <h2 id="album-grid-title" class="modal-title">Bộ sưu tập ảnh</h2>
+          <button id="btn-close-album-grid" class="modal-close-btn">✕</button>
+        </div>
+        <div id="album-grid-container" class="album-grid-scroll"></div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         11. MODAL: PHOTO ZOOM
+         ==================================================================== -->
+    <div id="photo-zoom-modal" class="modal-wrap photo-zoom-wrap">
+      <div id="photo-zoom-backdrop" class="modal-backdrop"></div>
+      <button id="btn-close-photo-zoom" class="photo-zoom-close">✕</button>
+      <div class="photo-zoom-body">
+        <img id="photo-zoom-img" referrerpolicy="no-referrer" alt="zoom">
+      </div>
+    </div>
+  </div>
+
+  <!-- SCRIPT ENGINE MODULES (LOADED IN EXACT ARCHITECTURAL ORDER) -->
+  <script src="js/state.js"></script>
+  <script src="js/providers.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
