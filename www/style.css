@@ -1570,3 +1570,56 @@ input:checked + .slider:before {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+
+/* ==============================================================================
+   TIKTOK STRICT 1-SLIDE SCROLL-SNAP LOCK
+   ============================================================================== */
+html, body, #app {
+  width: 100vw !important;
+  height: 100dvh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important; /* Cấm tuyệt đối body cuộn như trang web dài */
+  background: #000;
+}
+
+#view-feed {
+  position: relative !important;
+  width: 100vw !important;
+  height: calc(100dvh - 52px) !important; /* Trừ đúng chiều cao thanh Bottom Nav 52px */
+  overflow: hidden !important;
+}
+
+#view-feed:not(.active) {
+  display: none !important;
+}
+
+#feed-container {
+  width: 100% !important;
+  height: 100% !important;
+  overflow-x: hidden !important;
+  overflow-y: scroll !important;
+  scroll-snap-type: y mandatory !important; /* Bắt buộc khớp từng khung dọc */
+  overscroll-behavior-y: contain !important;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  display: block !important; /* Không dùng flex ở đây để tránh các slide bị co chiều cao */
+}
+
+#feed-container::-webkit-scrollbar {
+  display: none;
+}
+
+/* Áp dụng cho cả .feed-slide và bất kỳ thẻ con trực tiếp nào của #feed-container */
+#feed-container > .feed-slide,
+#feed-container > div {
+  position: relative !important;
+  width: 100vw !important;
+  height: 100% !important; /* Chiếm trọn 100% khung nhìn của #feed-container */
+  min-height: 100% !important;
+  max-height: 100% !important;
+  flex-shrink: 0 !important;
+  scroll-snap-align: start !important;
+  scroll-snap-stop: always !important; /* Cực kỳ quan trọng: Vuốt mạnh cũng chỉ qua đúng 1 video như TikTok */
+  overflow: hidden !important;
+}
