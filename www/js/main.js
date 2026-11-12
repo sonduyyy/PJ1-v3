@@ -45,6 +45,7 @@ function setupTopBar() {
   const btnOpenSource = document.getElementById('btn-open-source');
   const btnCycleSort = document.getElementById('btn-cycle-sort');
   const btnOpenSearch = document.getElementById('btn-open-search');
+  const btnQuickLock = document.getElementById('btn-quick-lock');
 
   if (btnVideo) {
     btnVideo.addEventListener('click', () => {
@@ -75,11 +76,22 @@ function setupTopBar() {
       openSearchModal();
     });
   }
+
+  if (btnQuickLock) {
+    btnQuickLock.addEventListener('click', () => {
+      window.lockAppNow();
+    });
+  }
 }
 
 window.switchMode = async function(modeKey) {
   if (!window.MODES[modeKey]) return;
   if (window.APP_STATE.currentMode === modeKey) return;
+
+  // Thu hồi bộ giải mã phần cứng & vô hiệu hóa phiên cũ
+  if (typeof window.destroyAllMediaAndResetFeed === 'function') {
+    window.destroyAllMediaAndResetFeed();
+  }
 
   window.APP_STATE.currentMode = modeKey;
   const modeCfg = window.MODES[modeKey];
@@ -96,6 +108,12 @@ window.switchMode = async function(modeKey) {
 
 window.switchSource = async function(sourceKey) {
   if (!window.PROVIDERS[sourceKey]) return;
+
+  // Thu hồi bộ giải mã phần cứng & vô hiệu hóa phiên cũ
+  if (typeof window.destroyAllMediaAndResetFeed === 'function') {
+    window.destroyAllMediaAndResetFeed();
+  }
+
   window.APP_STATE.currentSource = sourceKey;
   window.APP_STATE.page = 1;
   window.APP_STATE.nextCursor = null;
@@ -108,6 +126,11 @@ window.switchSource = async function(sourceKey) {
 };
 
 window.cycleSortMode = async function() {
+  // Thu hồi bộ giải mã phần cứng & vô hiệu hóa phiên cũ
+  if (typeof window.destroyAllMediaAndResetFeed === 'function') {
+    window.destroyAllMediaAndResetFeed();
+  }
+
   const modes = ['recent', 'hot', 'random'];
   const curIdx = modes.indexOf(window.APP_STATE.sortMode);
   const nextMode = modes[(curIdx + 1) % modes.length];
@@ -140,7 +163,7 @@ function updateTopBarUI() {
 
   const sortLabel = document.getElementById('label-sort-mode');
   if (sortLabel) {
-    sortLabel.textContent = sortMode === 'recent' ? '🕒 Mới' : (sortMode === 'hot' ? '🔥 Hot' : '🎲 Ngẫu nhiên');
+    sortLabel.textContent = sortMode === 'recent' ? 'Mới' : (sortMode === 'hot' ? 'Hot' : 'Đảo');
   }
 }
 
@@ -148,36 +171,62 @@ function updateTopBarUI() {
 // FEED FETCH ENGINE
 // -----------------------------------------------------------------------------
 async function loadInitialFeed() {
+  const currentSession = window.APP_STATE.feedSessionId;
+  window.APP_STATE.isLoading = true;
   window.showLoadingSpinner(true);
+  window.showRetryIndicator(false);
+
+  let retryTimer = setTimeout(() => {
+    if (window.APP_STATE.isLoading && currentSession === window.APP_STATE.feedSessionId) {
+      window.showRetryIndicator(true);
+    }
+  }, 8000);
+
   try {
-    const items = await window.fetchFeedBatch(1, window.APP_STATE.activeTag, window.APP_STATE.sortMode);
+    const items = await window.fetchFeedBatch(1, window.APP_STATE.activeTag, window.APP_STATE.sortMode, currentSession);
+    if (currentSession !== window.APP_STATE.feedSessionId) return;
+
     if (window.FeedEngine) {
       window.FeedEngine.renderFeed(items, false);
     }
   } catch (err) {
+    if (currentSession !== window.APP_STATE.feedSessionId) return;
     window.logDebug('loadInitialFeed error: ' + err.message);
-    window.showToast('Lỗi tải dữ liệu. Đang thử lại...');
+    window.showToast('Lỗi tải dữ liệu. Bấm để thử lại.');
+    window.showRetryIndicator(true);
   } finally {
-    window.showLoadingSpinner(false);
+    clearTimeout(retryTimer);
+    if (currentSession === window.APP_STATE.feedSessionId) {
+      window.APP_STATE.isLoading = false;
+      window.showLoadingSpinner(false);
+    }
   }
 }
 
 window.loadMoreFeed = async function() {
   if (window.APP_STATE.isLoading || !window.APP_STATE.hasMore) return;
+  const currentSession = window.APP_STATE.feedSessionId;
+  window.APP_STATE.isLoading = true;
   window.APP_STATE.page++;
   try {
-    const items = await window.fetchFeedBatch(window.APP_STATE.page, window.APP_STATE.activeTag, window.APP_STATE.sortMode);
+    const items = await window.fetchFeedBatch(window.APP_STATE.page, window.APP_STATE.activeTag, window.APP_STATE.sortMode, currentSession);
+    if (currentSession !== window.APP_STATE.feedSessionId) return;
+
     if (items.length > 0 && window.FeedEngine) {
       window.FeedEngine.renderFeed(items, true);
     }
   } catch (e) {
+    if (currentSession !== window.APP_STATE.feedSessionId) return;
     window.logDebug('loadMoreFeed error: ' + e.message);
+  } finally {
+    if (currentSession === window.APP_STATE.feedSessionId) {
+      window.APP_STATE.isLoading = false;
+    }
   }
 };
 
-window.fetchFeedBatch = async function(page = 1, tag = '', sortMode = 'recent') {
-  if (window.APP_STATE.isLoading) return [];
-  window.APP_STATE.isLoading = true;
+window.fetchFeedBatch = async function(page = 1, tag = '', sortMode = 'recent', sessionToken = null) {
+  if (sessionToken && sessionToken !== window.APP_STATE.feedSessionId) return [];
 
   const sourceKey = window.APP_STATE.currentSource;
   const provider = window.PROVIDERS[sourceKey] || window.PROVIDERS.xbooru;
@@ -185,9 +234,12 @@ window.fetchFeedBatch = async function(page = 1, tag = '', sortMode = 'recent') 
 
   try {
     const rawItems = await provider.fetchFeed(page, tag, sortMode);
+    if (sessionToken && sessionToken !== window.APP_STATE.feedSessionId) return [];
+
     if (!Array.isArray(rawItems) || rawItems.length === 0) {
-      window.APP_STATE.hasMore = false;
-      window.APP_STATE.isLoading = false;
+      if (!sessionToken || sessionToken === window.APP_STATE.feedSessionId) {
+        window.APP_STATE.hasMore = false;
+      }
       return [];
     }
 
@@ -200,15 +252,19 @@ window.fetchFeedBatch = async function(page = 1, tag = '', sortMode = 'recent') 
       validItems.push(item);
     });
 
-    window.APP_STATE.isLoading = false;
     return validItems;
   } catch (err) {
-    window.APP_STATE.isLoading = false;
+    if (sessionToken && sessionToken !== window.APP_STATE.feedSessionId) return [];
     throw err;
   }
 };
 
 window.executeSearchTag = async function(tag) {
+  // Thu hồi bộ giải mã phần cứng & vô hiệu hóa phiên cũ
+  if (typeof window.destroyAllMediaAndResetFeed === 'function') {
+    window.destroyAllMediaAndResetFeed();
+  }
+
   window.APP_STATE.activeTag = tag;
   window.APP_STATE.page = 1;
   window.APP_STATE.nextCursor = null;
@@ -427,6 +483,9 @@ function closeSourceModal() {
   if (modal) modal.classList.remove('active');
 }
 
+window.openSourceModal = openSourceModal;
+window.closeSourceModal = closeSourceModal;
+
 function openSearchModal() {
   const modal = document.getElementById('search-modal');
   const hotList = document.getElementById('hot-tags-list');
@@ -472,6 +531,7 @@ function setupProfileSettings() {
   const togglePasscode = document.getElementById('toggle-passcode');
   const inputNewPasscode = document.getElementById('input-new-passcode');
   const btnSavePasscode = document.getElementById('btn-save-passcode');
+  const btnLockNow = document.getElementById('btn-lock-now');
 
   if (togglePasscode) {
     togglePasscode.checked = !!settings.passcodeEnabled;
@@ -479,20 +539,31 @@ function setupProfileSettings() {
       settings.passcodeEnabled = togglePasscode.checked;
       window.saveSettingsToStorage();
       window.showToast(`Khóa bảo vệ: ${settings.passcodeEnabled ? 'BẬT' : 'TẮT'}`);
+      const quickLockBtn = document.getElementById('btn-quick-lock');
+      if (quickLockBtn) {
+        quickLockBtn.classList.toggle('hidden', !settings.passcodeEnabled);
+      }
     });
   }
 
   if (btnSavePasscode && inputNewPasscode) {
     btnSavePasscode.addEventListener('click', () => {
       const code = inputNewPasscode.value.trim();
-      if (code.length === 6 && /^\d+$/.test(code)) {
+      if (code.length === 6 && /^\d{6}$/.test(code)) {
         settings.passcode = code;
         window.saveSettingsToStorage();
-        window.showToast('Đã lưu mật mã mới!');
+        window.showToast('Đã lưu mật mã mới');
         inputNewPasscode.value = '';
       } else {
         window.showToast('Mật mã phải đúng 6 chữ số!');
       }
+    });
+  }
+
+  if (btnLockNow) {
+    btnLockNow.addEventListener('click', () => {
+      window.lockAppNow();
+      window.showToast('Đã khóa màn hình!');
     });
   }
 
@@ -607,29 +678,30 @@ function setupProfileSettings() {
 }
 
 // -----------------------------------------------------------------------------
-// PASSCODE SECURITY LOCK
+// PASSCODE SECURITY LOCK & MULTITASKING PROTECTION
 // -----------------------------------------------------------------------------
+let enteredPin = '';
+
 function setupPasscodeLock() {
   const overlay = document.getElementById('passcode-overlay');
   if (!overlay) return;
 
-  const isEnabled = !!window.APP_STATE.settings.passcodeEnabled;
-  if (!isEnabled) {
-    overlay.classList.add('hidden');
-    return;
-  }
+  const dotsContainer = document.getElementById('passcode-dots');
+  const dots = overlay.querySelectorAll('.pass-dot');
 
-  overlay.classList.remove('hidden');
-  let enteredPin = '';
-  const dots = document.querySelectorAll('.passcode-dot');
-
-  function updateDots() {
+  function updateDots(isError = false) {
     dots.forEach((dot, idx) => {
       dot.classList.toggle('filled', idx < enteredPin.length);
+      dot.classList.toggle('error', isError);
     });
   }
 
-  const keypadButtons = overlay.querySelectorAll('.keypad-btn');
+  window.__resetPasscodePin = function() {
+    enteredPin = '';
+    updateDots(false);
+  };
+
+  const keypadButtons = overlay.querySelectorAll('.pass-key');
   keypadButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const val = btn.dataset.key;
@@ -637,31 +709,107 @@ function setupPasscodeLock() {
         enteredPin = enteredPin.slice(0, -1);
       } else if (val === 'cancel') {
         enteredPin = '';
-      } else if (enteredPin.length < 6) {
+      } else if (/^\d$/.test(val) && enteredPin.length < 6) {
         enteredPin += val;
       }
-      updateDots();
+      updateDots(false);
 
       if (enteredPin.length === 6) {
         const correctPin = window.APP_STATE.settings.passcode || '777777';
         if (enteredPin === correctPin) {
           overlay.classList.add('hidden');
           enteredPin = '';
-          updateDots();
+          updateDots(false);
+
+          // Phát tiếp video ở slide hiện tại nếu đang ở tab Trang chủ
+          const viewFeed = document.getElementById('view-feed');
+          if (viewFeed && viewFeed.classList.contains('active')) {
+            const curEntry = window.APP_STATE.slideMap.get(window.APP_STATE.currentIndex);
+            if (curEntry && curEntry.videoEl) {
+              curEntry.videoEl.play().catch(() => {});
+            }
+          }
         } else {
+          if (dotsContainer) dotsContainer.classList.add('shake-error');
+          updateDots(true);
           window.showToast('Sai mật mã!');
           setTimeout(() => {
+            if (dotsContainer) dotsContainer.classList.remove('shake-error');
             enteredPin = '';
-            updateDots();
-          }, 300);
+            updateDots(false);
+          }, 400);
         }
       }
     });
   });
+
+  // Nút xóa lùi riêng biệt nếu được bấm
+  const btnBackspace = document.getElementById('passcode-backspace');
+  if (btnBackspace) {
+    btnBackspace.addEventListener('click', (e) => {
+      e.stopPropagation();
+      enteredPin = enteredPin.slice(0, -1);
+      updateDots(false);
+    });
+  }
+
+  // Khóa ngay khi mở app nếu cài đặt yêu cầu
+  if (window.APP_STATE.settings && window.APP_STATE.settings.passcodeEnabled) {
+    window.lockAppNow();
+  } else {
+    overlay.classList.add('hidden');
+  }
+
+  // Update quick lock button state in header
+  const quickLockBtn = document.getElementById('btn-quick-lock');
+  if (quickLockBtn) {
+    quickLockBtn.classList.toggle('hidden', !window.APP_STATE.settings?.passcodeEnabled);
+  }
 }
 
+window.lockAppNow = function() {
+  const feedEl = document.getElementById('feed-container');
+  if (feedEl) {
+    feedEl.querySelectorAll('video').forEach(v => {
+      try { v.pause(); } catch (e) {}
+    });
+  }
+  if (window.APP_STATE.autoSlideTimer) {
+    clearInterval(window.APP_STATE.autoSlideTimer);
+    window.APP_STATE.autoSlideTimer = null;
+  }
+  const overlay = document.getElementById('passcode-overlay');
+  if (overlay) {
+    overlay.classList.remove('hidden');
+    if (typeof window.__resetPasscodePin === 'function') {
+      window.__resetPasscodePin();
+    }
+  }
+};
+
+// Lắng nghe khi thoát ra Đa nhiệm (Recent apps) hoặc tắt màn hình
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    // 1. Tạm dừng mọi video và auto slide
+    const feedEl = document.getElementById('feed-container');
+    if (feedEl) {
+      feedEl.querySelectorAll('video').forEach(v => {
+        try { v.pause(); } catch (e) {}
+      });
+    }
+    if (window.APP_STATE.autoSlideTimer) {
+      clearInterval(window.APP_STATE.autoSlideTimer);
+      window.APP_STATE.autoSlideTimer = null;
+    }
+    // 2. Khóa ứng dụng nếu bật passcode
+    if (window.APP_STATE.settings && window.APP_STATE.settings.passcodeEnabled) {
+      window.lockAppNow();
+    }
+  }
+});
+
 // -----------------------------------------------------------------------------
-// TOAST & SPINNER HELPERS
+// TOAST, SPINNER & RETRY HELPERS
 // -----------------------------------------------------------------------------
 window.showToast = function(msg) {
   let toast = document.getElementById('app-toast');
@@ -683,3 +831,21 @@ window.showLoadingSpinner = function(show) {
     spinner.classList.toggle('active', show);
   }
 };
+
+window.showRetryIndicator = function(show) {
+  const retryCont = document.getElementById('retry-loading-container');
+  if (retryCont) {
+    retryCont.classList.toggle('hidden', !show);
+  }
+};
+
+// Bind retry button
+document.addEventListener('DOMContentLoaded', () => {
+  const btnRetry = document.getElementById('btn-retry-feed');
+  if (btnRetry) {
+    btnRetry.addEventListener('click', () => {
+      window.showRetryIndicator(false);
+      loadInitialFeed();
+    });
+  }
+});

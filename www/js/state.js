@@ -117,6 +117,7 @@ window.isItemBlacklisted = function(item) {
 
 // 3. Central Application State
 window.APP_STATE = {
+  feedSessionId: 0,
   currentMode: initialMode,
   currentSource: initialSource,
   sortMode: 'recent', // 'recent' | 'hot' | 'random'
@@ -169,42 +170,58 @@ window.onunhandledrejection = function(event) {
   window.logDebug(`PROMISE REJECT: ${event.reason?.message || event.reason}`);
 };
 
-// 5. Resilient Network Fetcher (CapacitorHttp native + browser fallback)
+// 5. Resilient Network Fetcher (CapacitorHttp native + browser fallback + 12s timeout)
 window.safeFetch = async function(url, options = {}) {
   const defaultHeaders = {
     'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
   };
   const mergedHeaders = Object.assign({}, defaultHeaders, options.headers || {});
 
-  // 1. Try Capacitor Native Http
-  if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) {
-    try {
-      const res = await window.Capacitor.Plugins.CapacitorHttp.request({
-        url: url,
-        method: options.method || 'GET',
-        headers: mergedHeaders,
-        data: options.body
-      });
-      const isOk = res.status >= 200 && res.status < 300;
-      return {
-        ok: isOk,
-        status: res.status,
-        json: async () => (typeof res.data === 'string' ? JSON.parse(res.data) : res.data),
-        text: async () => (typeof res.data === 'string' ? res.data : JSON.stringify(res.data))
-      };
-    } catch (capErr) {
-      window.logDebug(`CapacitorHttp error on ${url}: ${capErr.message || capErr}`);
-    }
-  }
+  // 12s timeout enforcement via Promise.race
+  let timerId = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timerId = setTimeout(() => {
+      reject(new Error(`Fetch timeout (12s) on: ${url}`));
+    }, 12000);
+  });
 
-  // 2. Browser Fetch fallback (PC / local preview)
-  const cleanBrowserHeaders = {};
-  for (const [k, v] of Object.entries(mergedHeaders)) {
-    const lk = k.toLowerCase();
-    if (lk !== 'user-agent' && lk !== 'referer' && lk !== 'origin') {
-      cleanBrowserHeaders[k] = v;
+  const executeFetch = async () => {
+    // 1. Try Capacitor Native Http
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) {
+      try {
+        const res = await window.Capacitor.Plugins.CapacitorHttp.request({
+          url: url,
+          method: options.method || 'GET',
+          headers: mergedHeaders,
+          data: options.body
+        });
+        const isOk = res.status >= 200 && res.status < 300;
+        return {
+          ok: isOk,
+          status: res.status,
+          json: async () => (typeof res.data === 'string' ? JSON.parse(res.data) : res.data),
+          text: async () => (typeof res.data === 'string' ? res.data : JSON.stringify(res.data))
+        };
+      } catch (capErr) {
+        window.logDebug(`CapacitorHttp error on ${url}: ${capErr.message || capErr}`);
+      }
     }
-  }
 
-  return window.fetch(url, Object.assign({}, options, { headers: cleanBrowserHeaders }));
+    // 2. Browser Fetch fallback (PC / local preview)
+    const cleanBrowserHeaders = {};
+    for (const [k, v] of Object.entries(mergedHeaders)) {
+      const lk = k.toLowerCase();
+      if (lk !== 'user-agent' && lk !== 'referer' && lk !== 'origin') {
+        cleanBrowserHeaders[k] = v;
+      }
+    }
+
+    return window.fetch(url, Object.assign({}, options, { headers: cleanBrowserHeaders }));
+  };
+
+  try {
+    return await Promise.race([executeFetch(), timeoutPromise]);
+  } finally {
+    if (timerId) clearTimeout(timerId);
+  }
 };

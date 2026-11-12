@@ -3,12 +3,60 @@
  * Video playback, photo/album carousels, memory cleaner, gestures & seekbar
  */
 
+// Global hardware decoder reclamation and feed state reset
+window.destroyAllMediaAndResetFeed = function() {
+  // 1. Tăng feedSessionId để vô hiệu hóa mọi request mạng / resolveMedia cũ đang chạy dở
+  window.APP_STATE.feedSessionId = (window.APP_STATE.feedSessionId || 0) + 1;
+
+  // 2. Mở khóa cưỡng bức cờ isLoading để nguồn mới luôn được phép tải ngay lập tức
+  window.APP_STATE.isLoading = false;
+  window.APP_STATE.hasMore = true;
+  window.APP_STATE.page = 1;
+  window.APP_STATE.nextCursor = null;
+  window.APP_STATE.currentIndex = 0;
+  window.APP_STATE.items = [];
+  if (window.APP_STATE.seenIds) window.APP_STATE.seenIds.clear();
+  if (window.APP_STATE.autoSlideTimer) {
+    clearInterval(window.APP_STATE.autoSlideTimer);
+    window.APP_STATE.autoSlideTimer = null;
+  }
+
+  // 3. Ngắt IntersectionObserver cũ (nếu có)
+  if (window.feedObserver) {
+    try { window.feedObserver.disconnect(); } catch (e) {}
+  }
+
+  // 4. THU HỒI BỘ GIẢI MÃ VIDEO PHẦN CỨNG TRƯỚC KHI XÓA DOM (Cực kỳ quan trọng trên Android!)
+  const feedEl = document.getElementById('feed-container');
+  if (feedEl) {
+    const videos = feedEl.querySelectorAll('video');
+    videos.forEach(v => {
+      try {
+        v.pause();
+        v.onplaying = null;
+        v.ontimeupdate = null;
+        v.onerror = null;
+        v.removeAttribute('src');
+        v.load(); // Ép Android WebView nhả bộ nhớ MediaCodec ngay lập tức
+      } catch (e) {}
+    });
+
+    // 5. Đưa vị trí cuộn về 0 TRƯỚC và SAU khi làm sạch HTML
+    feedEl.scrollTop = 0;
+    feedEl.innerHTML = '';
+  }
+
+  if (window.APP_STATE.slideMap) {
+    window.APP_STATE.slideMap.clear();
+  }
+};
+
 window.FeedEngine = {
   feedContainer: null,
   seekbarContainer: null,
   seekbarFill: null,
   albumGridModal: null,
-  albumGridContainer: null,
+  albumGridList: null,
   albumGridTitle: null,
   photoZoomModal: null,
   photoZoomImg: null,
@@ -21,7 +69,7 @@ window.FeedEngine = {
     this.seekbarContainer = document.getElementById('seekbar-container');
     this.seekbarFill = document.getElementById('seekbar-fill');
     this.albumGridModal = document.getElementById('album-grid-modal');
-    this.albumGridContainer = document.getElementById('album-grid-container');
+    this.albumGridList = document.getElementById('album-grid-list');
     this.albumGridTitle = document.getElementById('album-grid-title');
     this.photoZoomModal = document.getElementById('photo-zoom-modal');
     this.photoZoomImg = document.getElementById('photo-zoom-img');
@@ -104,11 +152,22 @@ window.FeedEngine = {
   renderFeed(items, append = false) {
     if (!this.feedContainer) return;
     if (!append) {
+      const videos = this.feedContainer.querySelectorAll('video');
+      videos.forEach(v => {
+        try {
+          v.pause();
+          v.onplaying = null;
+          v.ontimeupdate = null;
+          v.onerror = null;
+          v.removeAttribute('src');
+          v.load();
+        } catch (e) {}
+      });
+      this.feedContainer.scrollTop = 0;
       this.feedContainer.innerHTML = '';
       window.APP_STATE.slideMap.clear();
       window.APP_STATE.items = [];
       window.APP_STATE.currentIndex = 0;
-      this.feedContainer.scrollTop = 0;
     }
 
     const startIndex = window.APP_STATE.items.length;
@@ -120,7 +179,10 @@ window.FeedEngine = {
     });
 
     if (!append && window.APP_STATE.items.length > 0) {
-      this.activateSlide(0);
+      this.feedContainer.scrollTop = 0;
+      requestAnimationFrame(() => {
+        this.activateSlide(0);
+      });
     }
   },
 
@@ -130,6 +192,7 @@ window.FeedEngine = {
     slide.dataset.index = index;
 
     const isVideo = item.mediaType === 'video' || window.APP_STATE.currentMode === 'video';
+    const isAlbum = !isVideo && item.mediaType === 'image_album' && item.albumImages && item.albumImages.length > 1;
 
     // 1. Media Section
     let mediaHtml = '';
@@ -144,7 +207,6 @@ window.FeedEngine = {
         </div>
       `;
     } else {
-      const isAlbum = item.mediaType === 'image_album' && item.albumImages && item.albumImages.length > 1;
       if (isAlbum) {
         const slidesHtml = item.albumImages.map((u, idx) => `
           <div class="album-slide" data-idx="${idx}">
@@ -154,13 +216,9 @@ window.FeedEngine = {
 
         mediaHtml = `
           <div class="media-wrapper photo-mode photo-album-wrapper">
-            <div class="album-counter-pill">📸 <span class="cur-album-idx">1</span> / ${item.albumImages.length}</div>
+            <div class="album-counter-badge"><span class="cur-album-idx">1</span> / ${item.albumImages.length}</div>
             <div class="album-carousel">
               ${slidesHtml}
-            </div>
-            <div class="album-action-row">
-              <button class="album-grid-btn">⊞ Xem lưới (${item.albumImages.length} ảnh)</button>
-              <button class="album-autoslide-btn">▶️ Tự lướt</button>
             </div>
           </div>
         `;
@@ -173,54 +231,98 @@ window.FeedEngine = {
       }
     }
 
-    // 2. Action Rail (Right side)
+    // 2. Action Rail (TikTok Standard Right Action Bar with Crisp White SVGs)
     const isFav = !!window.APP_STATE.favorites[`${item.sourceKey}_${item.id}`];
     const favCountDisplay = item.favCount > 0 ? (item.favCount > 999 ? (item.favCount/1000).toFixed(1)+'k' : item.favCount) : 'Thích';
+    const providerObj = window.PROVIDERS[item.sourceKey] || {};
 
     const actionRailHtml = `
-      <div class="action-rail">
-        <button class="action-btn btn-heart ${isFav ? 'active' : ''}" data-index="${index}" title="Thích">
-          <svg class="heart-svg" viewBox="0 0 24 24" fill="${isFav ? '#fe2c55' : 'currentColor'}">
+      <div class="right-action-bar action-rail">
+        <!-- 1. Source Avatar with small plus badge -->
+        <div class="action-avatar" title="Nguồn: ${providerObj.name || item.sourceKey}">
+          <div class="avatar-circle">
+            <span class="avatar-icon">${providerObj.badgeIcon || '✨'}</span>
+          </div>
+          <div class="avatar-plus-badge">+</div>
+        </div>
+
+        <!-- 2. Like / Heart Button (TikTok SVG) -->
+        <button class="action-btn btn-heart ${isFav ? 'is-liked' : ''}" data-index="${index}" title="Thích">
+          <svg class="action-svg heart-svg" viewBox="0 0 24 24" fill="${isFav ? '#fe2c55' : '#ffffff'}">
             <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
           </svg>
           <span class="action-count fav-count-label">${favCountDisplay}</span>
         </button>
 
+        <!-- 3. Tags Button (SVG Hashtag) -->
         <button class="action-btn btn-tags" data-index="${index}" title="Xem tags">
-          <span class="action-icon">🏷️</span>
+          <svg class="action-svg tags-svg" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="9" x2="20" y2="9"></line>
+            <line x1="4" y1="15" x2="20" y2="15"></line>
+            <line x1="10" y1="3" x2="8" y2="21"></line>
+            <line x1="16" y1="3" x2="14" y2="21"></line>
+          </svg>
           <span class="action-count">Tags</span>
         </button>
 
+        <!-- 4. Mute Toggle Button (Video Only SVG Speaker) -->
         ${isVideo ? `
           <button class="action-btn btn-mute-toggle" data-index="${index}" title="Bật/Tắt âm">
-            <span class="action-icon mute-icon">${window.APP_STATE.isGlobalMuted ? '🔇' : '🔊'}</span>
+            <svg class="action-svg volume-svg" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              ${window.APP_STATE.isGlobalMuted ? `
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <line x1="23" y1="9" x2="17" y2="15"></line>
+                <line x1="17" y1="9" x2="23" y2="15"></line>
+              ` : `
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+              `}
+            </svg>
             <span class="action-count mute-label">${window.APP_STATE.isGlobalMuted ? 'Tắt' : 'Bật'}</span>
           </button>
         ` : ''}
 
+        <!-- 5. Open Web / Share Button (SVG Share Arrow) -->
         <button class="action-btn btn-open-web" data-index="${index}" title="Mở trang gốc">
-          <span class="action-icon">↗️</span>
+          <svg class="action-svg share-svg" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="18" cy="5" r="3"></circle>
+            <circle cx="6" cy="12" r="3"></circle>
+            <circle cx="18" cy="19" r="3"></circle>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+          </svg>
           <span class="action-count">Gốc</span>
         </button>
       </div>
     `;
 
-    // 3. Bottom Left Info
-    const providerObj = window.PROVIDERS[item.sourceKey] || {};
-    const tagsSnippet = (item.tagString || '').split(/\s+/).slice(0, 4).map(t => `#${t}`).join(' ');
+    // 3. Single Column Bottom-Left Container (.slide-bottom-left)
+    // 4 Layers stacked vertically with Flexbox - NEVER OVERLAPPING!
+    const tagsSnippet = (item.tagString || '').split(/\s+/).slice(0, 5).map(t => `#${t}`).join(' ');
 
-    const bottomInfoHtml = `
-      <div class="bottom-left-info">
-        <div class="creator-badge">
-          <span class="creator-icon">${providerObj.badgeIcon || '✨'}</span>
-          <span class="creator-name">${item.artist || providerObj.name || 'Creator'}</span>
-        </div>
+    const bottomLeftHtml = `
+      <div class="slide-bottom-left">
+        <!-- Layer 1: Album Action Row (If Album) -->
+        ${isAlbum ? `
+          <div class="album-action-row">
+            <button class="album-pill-btn btn-open-grid">⊞ Xem lưới (${item.albumImages.length})</button>
+            <button class="album-pill-btn btn-auto-slide">▶ Tự lướt</button>
+          </div>
+        ` : ''}
+
+        <!-- Layer 2: Author / Source text -->
+        <div class="slide-author">@${providerObj.name || 'Cosplay'} · ${item.artist || 'Creator'}</div>
+
+        <!-- Layer 3: Title (Max 2 lines) -->
         <div class="slide-title">${item.title || ''}</div>
-        <div class="slide-tags-snippet">${tagsSnippet}</div>
+
+        <!-- Layer 4: Hashtags -->
+        <div class="slide-tags">${tagsSnippet}</div>
       </div>
     `;
 
-    slide.innerHTML = mediaHtml + actionRailHtml + bottomInfoHtml;
+    slide.innerHTML = mediaHtml + actionRailHtml + bottomLeftHtml;
 
     // Cache references in slideMap
     const mediaWrapper = slide.querySelector('.media-wrapper');
@@ -256,7 +358,7 @@ window.FeedEngine = {
       const mediaWrap = entry.mediaWrapper;
 
       const handlePressStart = (e) => {
-        if (e.target.closest('.action-rail') || e.target.closest('.bottom-left-info')) return;
+        if (e.target.closest('.action-rail') || e.target.closest('.slide-bottom-left')) return;
         longPressTimer = setTimeout(() => {
           if (entry.videoEl) {
             entry.videoEl.playbackRate = 2.0;
@@ -281,7 +383,7 @@ window.FeedEngine = {
 
       mediaWrap.addEventListener('touchend', (e) => {
         handlePressEnd();
-        if (e.target.closest('.action-rail') || e.target.closest('.bottom-left-info')) return;
+        if (e.target.closest('.action-rail') || e.target.closest('.slide-bottom-left')) return;
         const now = Date.now();
         if (now - lastTapTime < 280) {
           // Double Tap
@@ -333,26 +435,26 @@ window.FeedEngine = {
         }, 40);
       }, { passive: true });
 
-      // Grid modal button
-      const gridBtn = slide.querySelector('.album-grid-btn');
-      if (gridBtn) {
-        gridBtn.addEventListener('click', (e) => {
+      // Open Album Grid Button in bottom-left
+      const btnGrid = slide.querySelector('.btn-open-grid');
+      if (btnGrid) {
+        btnGrid.addEventListener('click', (e) => {
           e.stopPropagation();
           this.openAlbumGridModal(item, entry.carouselEl);
         });
       }
 
-      // Counter pill button
-      const counterPill = slide.querySelector('.album-counter-pill');
-      if (counterPill) {
-        counterPill.addEventListener('click', (e) => {
+      // Top-right Album Counter Badge also opens Grid
+      const counterBadge = slide.querySelector('.album-counter-badge');
+      if (counterBadge) {
+        counterBadge.addEventListener('click', (e) => {
           e.stopPropagation();
           this.openAlbumGridModal(item, entry.carouselEl);
         });
       }
 
       // Auto slide button
-      const autoBtn = slide.querySelector('.album-autoslide-btn');
+      const autoBtn = slide.querySelector('.btn-auto-slide');
       if (autoBtn) {
         let isAuto = false;
         let autoTimer = null;
@@ -363,6 +465,7 @@ window.FeedEngine = {
             autoBtn.textContent = '⏸ Dừng';
             autoBtn.classList.add('active');
             autoTimer = setInterval(() => {
+              if (!entry.carouselEl) return;
               const width = entry.carouselEl.clientWidth || window.innerWidth;
               const maxLeft = entry.carouselEl.scrollWidth - width;
               if (entry.carouselEl.scrollLeft >= maxLeft - 5) {
@@ -372,7 +475,7 @@ window.FeedEngine = {
               }
             }, 2500);
           } else {
-            autoBtn.textContent = '▶️ Tự lướt';
+            autoBtn.textContent = '▶ Tự lướt';
             autoBtn.classList.remove('active');
             clearInterval(autoTimer);
           }
@@ -388,6 +491,18 @@ window.FeedEngine = {
     }
 
     // 4. Action Rail Buttons
+    // Avatar Click opens Source Modal
+    const avatarBtn = slide.querySelector('.action-avatar');
+    if (avatarBtn) {
+      avatarBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (typeof window.openSourceModal === 'function') {
+          window.openSourceModal();
+        }
+      });
+    }
+
+    // Like Button
     const btnHeart = slide.querySelector('.btn-heart');
     if (btnHeart) {
       btnHeart.addEventListener('click', (e) => {
@@ -396,6 +511,7 @@ window.FeedEngine = {
       });
     }
 
+    // Tags Button
     const btnTags = slide.querySelector('.btn-tags');
     if (btnTags) {
       btnTags.addEventListener('click', (e) => {
@@ -404,6 +520,7 @@ window.FeedEngine = {
       });
     }
 
+    // Mute Button
     const btnMute = slide.querySelector('.btn-mute-toggle');
     if (btnMute) {
       btnMute.addEventListener('click', (e) => {
@@ -413,6 +530,7 @@ window.FeedEngine = {
       });
     }
 
+    // Open Web / Share Button
     const btnOpenWeb = slide.querySelector('.btn-open-web');
     if (btnOpenWeb) {
       btnOpenWeb.addEventListener('click', (e) => {
@@ -434,6 +552,7 @@ window.FeedEngine = {
 
     if (entry.videoEl) {
       const item = entry.item;
+      const currentSession = window.APP_STATE.feedSessionId;
       // Resolve high quality video if required (r34video / r34cosplay)
       if (item.sourceKey && window.PROVIDERS[item.sourceKey]?.resolveMedia && !item._resolved) {
         try {
@@ -442,6 +561,9 @@ window.FeedEngine = {
           window.logDebug('resolveMedia err: ' + e.message);
         }
       }
+
+      // Check if session changed while resolving
+      if (currentSession !== window.APP_STATE.feedSessionId) return;
 
       const quality = window.APP_STATE.settings.quality;
       const targetSrc = (quality === 'original' && item.originalUrl) ? item.originalUrl : (item.sampleUrl || item.currentUrl);
@@ -529,9 +651,19 @@ window.FeedEngine = {
     }
 
     document.querySelectorAll('.btn-mute-toggle').forEach(btn => {
-      const icon = btn.querySelector('.mute-icon');
+      const svg = btn.querySelector('.volume-svg');
       const label = btn.querySelector('.mute-label');
-      if (icon) icon.textContent = isMuted ? '🔇' : '🔊';
+      if (svg) {
+        svg.innerHTML = isMuted ? `
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <line x1="23" y1="9" x2="17" y2="15"></line>
+          <line x1="17" y1="9" x2="23" y2="15"></line>
+        ` : `
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+        `;
+      }
       if (label) label.textContent = isMuted ? 'Tắt' : 'Bật';
     });
   },
@@ -554,11 +686,11 @@ window.FeedEngine = {
       const svg = slide.querySelector('.heart-svg');
       if (btnHeart && svg) {
         if (!exists) {
-          btnHeart.classList.add('active');
+          btnHeart.classList.add('is-liked');
           svg.setAttribute('fill', '#fe2c55');
         } else {
-          btnHeart.classList.remove('active');
-          svg.setAttribute('fill', 'currentColor');
+          btnHeart.classList.remove('is-liked');
+          svg.setAttribute('fill', '#ffffff');
         }
       }
     }
@@ -587,25 +719,29 @@ window.FeedEngine = {
     }, 900);
   },
 
-  // Modal: Album Grid
+  // Modal: Album Grid (Non-squished, vertically scrollable)
   openAlbumGridModal(item, carouselEl) {
-    if (!this.albumGridModal || !this.albumGridContainer) return;
-    if (this.albumGridTitle) {
-      this.albumGridTitle.textContent = `Bộ ảnh (${item.albumImages.length} ảnh)`;
+    const modal = this.albumGridModal || document.getElementById('album-grid-modal');
+    const container = document.getElementById('album-grid-list') || this.albumGridList;
+    const title = this.albumGridTitle || document.getElementById('album-grid-title');
+    if (!modal || !container) return;
+
+    if (title) {
+      title.textContent = `Bộ ảnh (${item.albumImages.length} ảnh)`;
     }
 
-    this.albumGridContainer.innerHTML = '';
+    container.innerHTML = '';
     const activeIdx = item.albumIndex || 0;
 
     item.albumImages.forEach((url, i) => {
-      const thumb = document.createElement('div');
-      thumb.className = `album-grid-thumb ${i === activeIdx ? 'active' : ''}`;
-      thumb.innerHTML = `
+      const itemEl = document.createElement('div');
+      itemEl.className = `album-grid-item ${i === activeIdx ? 'active' : ''}`;
+      itemEl.innerHTML = `
         <img src="${url}" loading="lazy" referrerpolicy="no-referrer" alt="thumb ${i + 1}">
-        <span class="album-thumb-idx">${i + 1}</span>
+        <span class="album-grid-num">${i + 1}</span>
       `;
 
-      thumb.addEventListener('click', () => {
+      itemEl.addEventListener('click', () => {
         if (carouselEl) {
           const width = carouselEl.clientWidth || window.innerWidth;
           carouselEl.scrollTo({ left: i * width, behavior: 'smooth' });
@@ -614,14 +750,15 @@ window.FeedEngine = {
         this.closeAlbumGridModal();
       });
 
-      this.albumGridContainer.appendChild(thumb);
+      container.appendChild(itemEl);
     });
 
-    this.albumGridModal.classList.add('active');
+    modal.classList.add('active');
   },
 
   closeAlbumGridModal() {
-    if (this.albumGridModal) this.albumGridModal.classList.remove('active');
+    const modal = this.albumGridModal || document.getElementById('album-grid-modal');
+    if (modal) modal.classList.remove('active');
   },
 
   // Modal: Photo Zoom
